@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westus2"
+    },
+    "namePrefix": {
+      "value": "mkd"
+    },
+    "sqlDatabaseName": {
+      "value": "MarshallDisplayRegistry"
+    },
+    "adminGroupObjectId": {
+      "value": "f1a3237e-1402-4f30-82a7-bfdb0c70c1aa"
+    },
+    "allowedDomains": {
+      "value": "*.usc.edu,usc.korbyt.com"
+    },
+    "defaultPollSeconds": {
+      "value": 300
+    },
+    "launchMode": {
+      "value": "kiosk"
+    },
+    "customDomainName": {
+      "value": "mkd.marshall.usc.edu"
+    },
+    "entraClientId": {
+      "value": "00000000-0000-0000-0000-000000000000"
+    },
+    "sqlEntraAdminObjectId": {
+      "value": "de3101d9-289b-4255-8efb-0c8e32ec2c00"
+    },
+    "sqlEntraAdminLogin": {
+      "value": "dlewis@marshall.usc.edu"
+    },
+    "sqlEntraAdminPrincipalType": {
+      "value": "User"
+    },
+    "tokenHashSecret": {
+      "value": "replace-with-production-token-hash-secret"
+    }
+  }
+}

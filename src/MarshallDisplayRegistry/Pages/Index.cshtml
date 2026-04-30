@@ -1,0 +1,54 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="page-title">
+    <div>
+        <h1 class="h3 mb-1">Dashboard</h1>
+        <p class="text-muted mb-0">Public display health and URL assignment state.</p>
+    </div>
+    <a class="btn btn-primary" asp-page="/Displays/Edit">Add Display</a>
+</div>
+
+<div class="summary-grid">
+    @foreach (var item in Model.StatusCounts)
+    {
+        <div class="summary-tile">
+            <span class="value">@item.Value</span>
+            <span class="text-muted">@item.Key</span>
+        </div>
+    }
+</div>
+
+<div class="table-shell">
+    <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>Display</th>
+                <th>Status</th>
+                <th>Assigned URL</th>
+                <th>Current URL</th>
+                <th>Last seen</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var device in Model.Displays)
+        {
+            <tr>
+                <td>
+                    <strong>@device.ComputerName</strong><br />
+                    <span class="text-muted">@device.FriendlyName</span>
+                </td>
+                <td><span class="status-pill @device.StatusCss">@device.Status</span></td>
+                <td class="url-cell">@device.DesiredUrl</td>
+                <td class="url-cell">@device.CurrentUrl</td>
+                <td>@device.LastSeen</td>
+                <td class="text-end"><a class="btn btn-sm btn-outline-secondary" asp-page="/Displays/Details" asp-route-id="@device.Id">Details</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

@@ -1,0 +1,91 @@
+name: Build and deploy Marshall Display Registry
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_RESOURCE_GROUP: MarshallKorbytDisplays
+  AZURE_LOCATION: westus2
+  DOTNET_VERSION: 8.0.x
+  SQL_ENTRA_ADMIN_PRINCIPAL_TYPE: ${{ vars.SQL_ENTRA_ADMIN_PRINCIPAL_TYPE || 'User' }}
+
+jobs:
+  build-test-deploy:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore MarshallKorbytDisplays.sln
+
+      - name: Install EF tooling
+        run: dotnet tool install --global dotnet-ef --version 8.0.11
+
+      - name: Test
+        run: dotnet test MarshallKorbytDisplays.sln --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish src/MarshallDisplayRegistry/MarshallDisplayRegistry.csproj --configuration Release --output publish
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: c0ccb9c9-d693-495d-8492-5136bb1940d6
+          subscription-id: dcb4ce4c-4996-4752-bb86-6f7be4fa10ce
+
+      - name: Deploy infrastructure
+        id: infra
+        shell: pwsh
+        run: |
+          $result = az deployment group create `
+            --resource-group $env:AZURE_RESOURCE_GROUP `
+            --template-file infra/main.bicep `
+            --parameters `
+              location=$env:AZURE_LOCATION `
+              sqlEntraAdminObjectId='${{ secrets.SQL_ENTRA_ADMIN_OBJECT_ID }}' `
+              sqlEntraAdminLogin='${{ secrets.SQL_ENTRA_ADMIN_LOGIN }}' `
+              sqlEntraAdminPrincipalType=$env:SQL_ENTRA_ADMIN_PRINCIPAL_TYPE `
+              entraClientId='${{ secrets.ENTRA_APP_CLIENT_ID }}' `
+              tokenHashSecret='${{ secrets.DISPLAY_TOKEN_HASH_SECRET }}' `
+            --query properties.outputs `
+            --output json | ConvertFrom-Json
+          "appName=$($result.appServiceName.value)" >> $env:GITHUB_OUTPUT
+          "sqlServerName=$($result.sqlServerName.value)" >> $env:GITHUB_OUTPUT
+          "sqlServerFqdn=$($result.sqlServerFqdn.value)" >> $env:GITHUB_OUTPUT
+
+      - name: Grant SQL managed identity access
+        shell: pwsh
+        run: |
+          ./scripts/grant-sql-access.ps1 `
+            -ResourceGroupName $env:AZURE_RESOURCE_GROUP `
+            -AppServiceName '${{ steps.infra.outputs.appName }}' `
+            -SqlServerName '${{ steps.infra.outputs.sqlServerName }}' `
+            -DatabaseName 'MarshallDisplayRegistry' `
+            -GrantDdlAdmin
+
+      - name: Apply EF migrations
+        shell: pwsh
+        run: |
+          $env:ConnectionStrings__DefaultConnection = "Server=tcp:${{ steps.infra.outputs.sqlServerFqdn }},1433;Database=MarshallDisplayRegistry;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;"
+          dotnet ef database update --project src/MarshallDisplayRegistry/MarshallDisplayRegistry.csproj --startup-project src/MarshallDisplayRegistry/MarshallDisplayRegistry.csproj
+
+      - name: Deploy web app
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.infra.outputs.appName }}
+          package: publish

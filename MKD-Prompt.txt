@@ -1,0 +1,366 @@
+I want you to build an MVP for an internal digital signage “CMS lite” system called Marshall Display Registry.
+
+Goal:
+We have Windows public display computers that automatically log in as a kiosk user and launch Google Chrome fullscreen/kiosk to a specific URL. Today this is done with a hardcoded Chrome shortcut in the Startup folder. I want a small internal web app and API where admins can manage which URL each display computer should launch. Each display computer will run a PowerShell endpoint agent that checks in with the API, retrieves its assigned URL, launches Chrome, and reports status.
+
+Hosting target:
+- Production hosting will be Azure App Service.
+- Production database will be Azure SQL Database.
+- Use Azure-native infrastructure where practical.
+- Include infrastructure-as-code using Bicep, or Azure Developer CLI-compatible Bicep.
+- Include GitHub Actions deployment workflow if practical.
+- Local development may use SQL Server LocalDB, Docker SQL Server, or a dev Azure SQL database.
+- Do not use SQLite as the main database provider.
+
+Technology choices:
+- Use ASP.NET Core, preferably .NET 8 or newer.
+- Use Razor Pages or MVC for the admin UI. Keep it simple; do not use React unless absolutely necessary.
+- Use Entity Framework Core with the SQL Server provider.
+- Use Azure SQL Database in production.
+- Use OpenAPI/Swagger for the API.
+- Use Application Insights-compatible logging.
+- Include clear README setup instructions.
+- Include PowerShell scripts for the Windows endpoint agent and installer.
+
+Azure architecture requirements:
+Create infrastructure definitions for:
+- Resource group
+- App Service Plan
+- Azure App Service
+- Azure SQL Server
+- Azure SQL Database
+- Azure Key Vault
+- Application Insights
+- Log Analytics Workspace
+- System-assigned managed identity for App Service
+- App settings needed by the application
+- Optional placeholders for custom domain and certificate
+
+Security requirements:
+- Use Microsoft Entra ID / App Service Authentication for the admin web UI.
+- Structure the app so only approved admin users or groups can access admin pages.
+- The device/agent API must not depend on human Entra login.
+- Device API must use per-device tokens.
+- Store only hashed device tokens in Azure SQL.
+- Store server-side token hashing/signing secrets in Azure Key Vault or App Service configuration.
+- Prefer Managed Identity for the App Service to access Azure SQL and Key Vault.
+- Validate assigned URLs against allowed domains from configuration.
+- Add audit logging for URL assignment changes, display enable/disable, and queued commands.
+- Keep admin routes and agent routes clearly separated.
+
+Core entities:
+1. DisplayDevice
+   - Id
+   - ComputerName
+   - FriendlyName
+   - Location
+   - Building
+   - Room
+   - SerialNumber
+   - MacAddress
+   - Enabled
+   - AgentVersion
+   - LastSeenUtc
+   - CurrentUrl
+   - DesiredUrl
+   - ChromeRunning
+   - LastError
+   - CreatedUtc
+   - UpdatedUtc
+
+2. UrlProfile
+   - Id
+   - Name
+   - Url
+   - Description
+   - Enabled
+   - CreatedUtc
+   - UpdatedUtc
+
+3. DisplayAssignment
+   - Id
+   - DisplayDeviceId
+   - UrlProfileId
+   - AssignedBy
+   - Notes
+   - CreatedUtc
+
+4. DisplayCheckIn
+   - Id
+   - DisplayDeviceId
+   - CheckInUtc
+   - ComputerName
+   - CurrentUrl
+   - DesiredUrl
+   - ChromeRunning
+   - AgentVersion
+   - IpAddress
+   - ErrorMessage
+
+5. DisplayCommand
+   - Id
+   - DisplayDeviceId
+   - CommandType
+   - Status
+   - CreatedUtc
+   - PickedUpUtc
+   - CompletedUtc
+   - ResultMessage
+
+6. DeviceCredential
+   - Id
+   - DisplayDeviceId
+   - TokenHash
+   - CreatedUtc
+   - LastUsedUtc
+   - RevokedUtc
+
+7. AuditLog
+   - Id
+   - Actor
+   - Action
+   - ObjectType
+   - ObjectId
+   - OldValue
+   - NewValue
+   - CreatedUtc
+
+Admin UI requirements:
+- Home/dashboard page showing display status.
+- Displays page with list, search, add, edit, enable/disable.
+- URL Profiles page with list, add, edit, enable/disable.
+- Display detail page showing:
+  - device metadata
+  - assigned URL
+  - current URL
+  - last seen
+  - Chrome running status
+  - recent check-ins
+  - recent commands
+- Ability to assign a URL profile to a display.
+- Ability to queue a RestartChrome command for a display.
+- Status labels:
+  - Healthy: last seen under 10 minutes, enabled, Chrome running, current URL equals desired URL.
+  - Pending: desired URL changed but device has not checked in yet.
+  - Needs Refresh: current URL differs from desired URL.
+  - Offline: no check-in for more than 30 minutes.
+  - Disabled: device disabled.
+  - Error: agent reported an error.
+
+API requirements:
+1. POST /api/agent/register
+   Request:
+   {
+     "computerName": "...",
+     "serialNumber": "...",
+     "macAddress": "...",
+     "agentVersion": "..."
+   }
+   Behavior:
+   - If computerName already exists, return existing device config but issue a new device token only if no active token exists.
+   - If computerName does not exist, create a display device based on configurable setting AutoEnableNewDevices.
+   - Generate a long random device token.
+   - Store only a hash of the token.
+   - Return the token once.
+
+2. POST /api/agent/checkin
+   Auth:
+   - Use headers:
+     X-Display-ComputerName
+     X-Display-Token
+   Request:
+   {
+     "serialNumber": "...",
+     "macAddress": "...",
+     "agentVersion": "...",
+     "currentUrl": "...",
+     "chromeRunning": true,
+     "lastError": null
+   }
+   Response:
+   {
+     "enabled": true,
+     "desiredUrl": "...",
+     "launchMode": "kiosk",
+     "restartChrome": false,
+     "pollSeconds": 300,
+     "allowedDomains": ["usc.korbyt.com", "marshall.usc.edu", "usc.edu"],
+     "commands": [
+       {
+         "id": 123,
+         "commandType": "RestartChrome"
+       }
+     ]
+   }
+   Behavior:
+   - Validate device token.
+   - Update LastSeenUtc, CurrentUrl, ChromeRunning, LastError, AgentVersion.
+   - Create DisplayCheckIn record.
+   - Return assigned desired URL.
+   - Return pending commands.
+   - Mark returned commands as PickedUp.
+
+3. POST /api/agent/commands/{id}/complete
+   Auth:
+   - Same device token headers.
+   Request:
+   {
+     "status": "Completed",
+     "resultMessage": "Chrome restarted"
+   }
+   Behavior:
+   - Mark command complete.
+
+4. GET /api/agent/config
+   Auth:
+   - Same device token headers.
+   Behavior:
+   - Return current desired config without creating a full check-in record.
+
+PowerShell agent requirements:
+Create a folder /agent with:
+1. SignageAgent.ps1
+2. Install-SignageAgent.ps1
+3. Uninstall-SignageAgent.ps1
+4. Test-SignageAgent.ps1
+5. sample-signage-agent.json
+
+Agent behavior:
+- Config file path:
+  C:\ProgramData\MarshallDigitalSignage\Agent\signage-agent.json
+- Token file path:
+  C:\ProgramData\MarshallDigitalSignage\Agent\device-token.txt
+- Cache file path:
+  C:\ProgramData\MarshallDigitalSignage\Agent\last-known-good.json
+- Log folder:
+  C:\ProgramData\MarshallDigitalSignage\Logs
+
+SignageAgent.ps1 modes:
+- -Mode Register
+- -Mode Launch
+- -Mode Monitor
+- -Mode CheckIn
+- -Mode RestartChrome
+
+Agent details:
+- Detect computer name using $env:COMPUTERNAME.
+- Detect serial number using CIM/WMI.
+- Detect primary MAC address.
+- Register with the Azure App Service API if no token exists.
+- Check in with API using X-Display-ComputerName and X-Display-Token headers.
+- Validate returned URL against allowed domains.
+- Cache last-known-good URL locally.
+- If API is unavailable, use cached URL.
+- Launch Chrome from:
+  C:\Program Files\Google\Chrome\Application\chrome.exe
+- Chrome arguments should include:
+  --kiosk or --start-fullscreen based on config
+  --autoplay-policy=no-user-gesture-required
+  --no-first-run
+  --disable-session-crashed-bubble
+  --user-data-dir="C:\ProgramData\MarshallDigitalSignage\ChromeProfile"
+- The agent should avoid launching duplicate Chrome instances unnecessarily.
+- If desired URL changes, close Chrome and relaunch with the new URL.
+- If Chrome is closed, relaunch it.
+- Write useful logs.
+
+Installer requirements:
+Install-SignageAgent.ps1 should:
+- Require admin.
+- Create C:\ProgramData\MarshallDigitalSignage folders.
+- Copy agent files.
+- Create or update config file with ApiBaseUrl pointing to the Azure App Service URL.
+- Create scheduled task "Marshall Signage - Launch" triggered at logon of axistvuser.
+- Create scheduled task "Marshall Signage - Monitor" running every 5 minutes.
+- Optionally remove or rename the old Chrome shortcut from:
+  C:\Users\axistvuser\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
+- Run initial registration.
+- Print validation results.
+
+Uninstaller requirements:
+- Remove scheduled tasks.
+- Optionally remove agent folder.
+- Optionally leave logs/cache behind.
+- Do not delete Chrome.
+
+Test script requirements:
+Test-SignageAgent.ps1 should check:
+- Chrome exists.
+- Azure App Service API reachable.
+- Config exists.
+- Token exists.
+- Scheduled tasks exist.
+- Kiosk user path exists.
+- Can retrieve assigned URL.
+- URL is allowed.
+- Can launch Chrome in test mode.
+
+Configuration:
+Add appsettings.json values for:
+- AllowedDomains
+- DefaultPollSeconds
+- LaunchMode
+- AutoEnableNewDevices
+- TokenHashSecretName or equivalent Key Vault-backed configuration
+- Azure SQL connection string or Managed Identity SQL configuration
+- Application Insights connection string
+
+Database:
+- Use EF Core SQL Server provider.
+- Include migrations.
+- Include seed data.
+- Include instructions for applying migrations locally and in Azure.
+- Include a safe migration approach for App Service deployment.
+
+README:
+Include:
+- How to run locally.
+- How to create local dev database.
+- How to apply EF migrations.
+- How to seed sample devices and URLs.
+- How to provision Azure resources.
+- How to deploy to Azure App Service.
+- How to configure Azure SQL.
+- How to configure App Service Authentication with Microsoft Entra ID.
+- How to configure Key Vault references or Managed Identity.
+- How to call the agent API manually with curl/PowerShell.
+- How to install the agent on a Windows display computer.
+- Known limitations.
+
+Important design constraints:
+- Keep the app simple and maintainable.
+- Prefer Azure-native and Microsoft-native technologies.
+- Do not build playlist scheduling, screenshot capture, advanced analytics, or content editing in this MVP.
+- The system manages URLs only.
+- The endpoint agent must run Chrome in the interactive kiosk user session, not as a Windows service.
+- Admin authentication and device authentication are separate concerns.
+
+Deliverables:
+- Working ASP.NET Core solution.
+- EF Core models and migrations.
+- Razor Pages or MVC admin UI.
+- Agent API.
+- Azure infrastructure-as-code.
+- PowerShell endpoint agent.
+- Installer/uninstaller/test scripts.
+- README.
+- Sample data.
+- Basic tests.
+
+##Overall Build Order
+1. ASP.NET Core app + Azure SQL EF Core models
+2. Admin UI
+3. Agent API and device-token auth
+4. Azure Bicep/azd infrastructure
+5. PowerShell endpoint agent
+6. Installer/uninstaller/test scripts
+7. GitHub Actions or Azure DevOps deployment
+8. README and pilot checklist
+
+##Azure Set up work for the app/api:
+Resource group name = MarshallKorbytDisplays
+Azure region = US West
+Production DNS name = MKD.marshall.usc.edu
+Admin Entra group = "Marshall Korbyt Display"
+Allowed URL domains = *.usc.edu and usc.korbyt.com
+Pilot display computer names = JFFVW-DSP-01

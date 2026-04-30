@@ -1,0 +1,8 @@
+{
+  "ApiBaseUrl": "https://mkd-marshall.azurewebsites.net",
+  "LaunchMode": "kiosk",
+  "PollSeconds": 300,
+  "ChromePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "ChromeProfilePath": "C:\\ProgramData\\MarshallDigitalSignage\\ChromeProfile",
+  "KioskUser": "axistvuser"
+}

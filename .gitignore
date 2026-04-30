@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.vscode/
+TestResults/
+*.user
+*.suo
+*.nupkg
+publish/
+appsettings.Local.json
+*.db
+*.sqlite
+*.bak
+*.zip
+agent/*.local.json
+infra/main.json
+infra/resource-group.json
