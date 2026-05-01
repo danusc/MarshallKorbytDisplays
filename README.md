@@ -149,7 +149,7 @@ Create a Microsoft Entra app registration for App Service Authentication and pro
 
 The workflow is in `.github/workflows/deploy.yml`. Configure these repository secrets:
 
-- `AZURE_CLIENT_ID` for an OIDC-enabled federated credential.
+- `AZURE_CLIENT_ID` for an OIDC-enabled Entra app registration. Use the app/client ID, not the object ID.
 - `SQL_ENTRA_ADMIN_OBJECT_ID`
 - `SQL_ENTRA_ADMIN_LOGIN`
 - `ENTRA_APP_CLIENT_ID`
@@ -158,6 +158,36 @@ The workflow is in `.github/workflows/deploy.yml`. Configure these repository se
 Optional repository variable:
 
 - `SQL_ENTRA_ADMIN_PRINCIPAL_TYPE`, default `User`.
+
+For `azure/login`, the Entra app used by `AZURE_CLIENT_ID` must have a federated credential for this repository. The branch deployment subject is:
+
+```text
+repo:danusc/MarshallKorbytDisplays:ref:refs/heads/main
+```
+
+Example setup:
+
+```powershell
+$app = az ad app create --display-name 'Marshall Display Registry GitHub Deploy' | ConvertFrom-Json
+az ad sp create --id $app.appId
+
+$credential = @{
+  name = 'github-main'
+  issuer = 'https://token.actions.githubusercontent.com'
+  subject = 'repo:danusc/MarshallKorbytDisplays:ref:refs/heads/main'
+  audiences = @('api://AzureADTokenExchange')
+} | ConvertTo-Json
+
+$credential | Out-File .\github-federated-credential.json -Encoding utf8
+az ad app federated-credential create --id $app.appId --parameters .\github-federated-credential.json
+
+az role assignment create `
+  --assignee $app.appId `
+  --role Contributor `
+  --scope /subscriptions/dcb4ce4c-4996-4752-bb86-6f7be4fa10ce/resourceGroups/MarshallKorbytDisplays
+```
+
+Then add the GitHub repository secret `AZURE_CLIENT_ID` with `$app.appId`.
 
 ## Install the Windows display agent
 

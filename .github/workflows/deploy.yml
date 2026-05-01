@@ -13,6 +13,8 @@ permissions:
 env:
   AZURE_RESOURCE_GROUP: MarshallKorbytDisplays
   AZURE_LOCATION: westus2
+  AZURE_TENANT_ID: c0ccb9c9-d693-495d-8492-5136bb1940d6
+  AZURE_SUBSCRIPTION_ID: dcb4ce4c-4996-4752-bb86-6f7be4fa10ce
   DOTNET_VERSION: 8.0.x
   SQL_ENTRA_ADMIN_PRINCIPAL_TYPE: ${{ vars.SQL_ENTRA_ADMIN_PRINCIPAL_TYPE || 'User' }}
 
@@ -41,12 +43,35 @@ jobs:
       - name: Publish
         run: dotnet publish src/MarshallDisplayRegistry/MarshallDisplayRegistry.csproj --configuration Release --output publish
 
+      - name: Validate deployment configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ENTRA_APP_CLIENT_ID: ${{ secrets.ENTRA_APP_CLIENT_ID }}
+          SQL_ENTRA_ADMIN_OBJECT_ID: ${{ secrets.SQL_ENTRA_ADMIN_OBJECT_ID }}
+          SQL_ENTRA_ADMIN_LOGIN: ${{ secrets.SQL_ENTRA_ADMIN_LOGIN }}
+          DISPLAY_TOKEN_HASH_SECRET: ${{ secrets.DISPLAY_TOKEN_HASH_SECRET }}
+        run: |
+          $required = @(
+            'AZURE_CLIENT_ID',
+            'ENTRA_APP_CLIENT_ID',
+            'SQL_ENTRA_ADMIN_OBJECT_ID',
+            'SQL_ENTRA_ADMIN_LOGIN',
+            'DISPLAY_TOKEN_HASH_SECRET'
+          )
+
+          $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace((Get-Item "env:$_" -ErrorAction SilentlyContinue).Value) }
+          if ($missing) {
+            throw "Missing required GitHub repository secrets: $($missing -join ', '). See README.md > GitHub Actions."
+          }
+
       - name: Azure login
         uses: azure/login@v2
         with:
+          auth-type: SERVICE_PRINCIPAL
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: c0ccb9c9-d693-495d-8492-5136bb1940d6
-          subscription-id: dcb4ce4c-4996-4752-bb86-6f7be4fa10ce
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy infrastructure
         id: infra
