@@ -9,14 +9,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$extension = az extension show --name rdbms-connect 2>$null | ConvertFrom-Json
-if (-not $extension) {
-    az extension add --name rdbms-connect
+$identity = az webapp identity show --resource-group $ResourceGroupName --name $AppServiceName | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to read App Service managed identity for $AppServiceName."
 }
 
-$identity = az webapp identity show --resource-group $ResourceGroupName --name $AppServiceName | ConvertFrom-Json
 if (-not $identity.principalId) {
     throw "App Service $AppServiceName does not have a system-assigned managed identity."
+}
+
+$accessToken = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+    throw 'Failed to acquire an Azure SQL access token from Azure CLI.'
 }
 
 $escapedName = $AppServiceName.Replace("'", "''")
@@ -31,11 +35,19 @@ ALTER ROLE db_datawriter ADD MEMBER [$escapedName];
 $ddlRole
 "@
 
-az sql db query `
-    --resource-group $ResourceGroupName `
-    --server $SqlServerName `
-    --name $DatabaseName `
-    --auth-type aad `
-    --querytext $query
+$connectionString = "Server=tcp:$SqlServerName.database.windows.net,1433;Database=$DatabaseName;Encrypt=True;TrustServerCertificate=False;"
+$connection = [System.Data.SqlClient.SqlConnection]::new($connectionString)
+$connection.AccessToken = $accessToken
+
+try {
+    $connection.Open()
+    $command = $connection.CreateCommand()
+    $command.CommandText = $query
+    $command.CommandTimeout = 60
+    [void]$command.ExecuteNonQuery()
+}
+finally {
+    $connection.Dispose()
+}
 
 Write-Host "Granted Azure SQL data-plane access to managed identity for $AppServiceName."

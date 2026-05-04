@@ -185,9 +185,16 @@ az role assignment create `
   --assignee $app.appId `
   --role Contributor `
   --scope /subscriptions/dcb4ce4c-4996-4752-bb86-6f7be4fa10ce/resourceGroups/MarshallKorbytDisplays
+
+az role assignment create `
+  --assignee $app.appId `
+  --role "User Access Administrator" `
+  --scope /subscriptions/dcb4ce4c-4996-4752-bb86-6f7be4fa10ce/resourceGroups/MarshallKorbytDisplays
 ```
 
 Then add the GitHub repository secret `AZURE_CLIENT_ID` with `$app.appId`.
+
+For unattended GitHub deployments that also run EF migrations, set `SQL_ENTRA_ADMIN_PRINCIPAL_TYPE` to `Application` and set `SQL_ENTRA_ADMIN_OBJECT_ID` / `SQL_ENTRA_ADMIN_LOGIN` to an Entra application or group that is allowed to administer the Azure SQL server.
 
 ## Install the Windows display agent
 

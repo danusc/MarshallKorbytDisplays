@@ -26,7 +26,7 @@ var keyVaultName = take('${namePrefix}-kv-${suffix}', 24)
 var workspaceName = '${namePrefix}-law-${suffix}'
 var appInsightsName = '${namePrefix}-appi-${suffix}'
 var tokenSecretName = 'display-token-hash-secret'
-var keyVaultSecretsUserRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6d')
+var keyVaultSecretsUserRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: workspaceName
