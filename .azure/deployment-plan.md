@@ -1,6 +1,6 @@
 # Azure Deployment Plan
 
-> **Status:** Validated
+> **Status:** Deployed
 
 Generated: 2026-04-30
 
@@ -78,3 +78,5 @@ Generated: 2026-04-30
 | Template validation | `az deployment group validate --resource-group MarshallKorbytDisplays --template-file infra/main.bicep --parameters infra/main.parameters.json` | Passed |
 | What-if preview | `az deployment group what-if --resource-group MarshallKorbytDisplays --template-file infra/main.bicep --parameters infra/main.parameters.json --result-format ResourceIdOnly` | Passed, 11 resources to create |
 | PowerShell parser | Parser over `agent/*.ps1` and `scripts/*.ps1` | Passed |
+| Azure deployment | `az deployment group create --resource-group MarshallKorbytDisplays --template-file infra/main.bicep` | Deployed |
+| App publish | `az webapp deploy --resource-group MarshallKorbytDisplays --name mkd-app-ytlipm7v5rbga --src-path C:\tmp\mkd-publish.zip --type zip` | Deployed |
